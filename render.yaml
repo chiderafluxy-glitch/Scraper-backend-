@@ -13,6 +13,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: "0"  # Install browsers to node_modules, not OS cache
       - key: NEXT_PUBLIC_SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
@@ -33,6 +35,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: "0"  # Install browsers to node_modules, not OS cache
       - key: NEXT_PUBLIC_SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
