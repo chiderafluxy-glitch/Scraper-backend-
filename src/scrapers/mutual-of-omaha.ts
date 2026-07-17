@@ -273,46 +273,75 @@ async function searchByCity(page: Page, city: string, state: string): Promise<Ag
   const agents: AgentProfile[] = [];
   
   try {
-    // Navigate to the search page
-    await page.goto(`${BASE_URL}/agents/search`, { waitUntil: 'networkidle' });
+    // Mutual of Omaha's search doesn't filter by city properly.
+    // Instead, navigate to the state's agent page, find the city link, then scrape agents from the city page.
+    console.log(`[CITY: ${city}, ${state}] Navigating to city page...`);
+    
+    // First, go to the state page and find the city link
+    await page.goto(`${BASE_URL}/agents/${state.toLowerCase()}`, { waitUntil: 'networkidle' });
     await randomDelay();
     
-    // Enter city name (just the city, not "city, state" - testing showed "Houston" works but "Houston, TX" doesn't)
-    let searchInput = page.getByPlaceholder('Search by name or location');
-    if ((await searchInput.count()) === 0) {
-      searchInput = page.getByRole('textbox', { name: 'Conduct a search' });
-    }
-    await searchInput.first().waitFor({ state: 'visible', timeout: 10000 });
-    await searchInput.first().fill(city);
-    await randomDelay();
+    // Look for a link to the specific city
+    const cityPattern = city.toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-');
+    const cityLink = page.locator(`a[href="/agents/${state.toLowerCase()}/${cityPattern}"]`).first();
     
-    await page.keyboard.press('Enter');
-    await page.waitForLoadState('networkidle');
-    await randomDelay();
-    
-    // Filter to target state agents
-    const agentLinks = page.locator(`a[href*="/agents/"][href*="/${state.toLowerCase()}/"]`);
-    const count = await agentLinks.count();
-    
-    if (count === 0) {
-      console.warn(`[WARNING] Zero results for city ${city}, ${state}`);
-      return agents;
-    }
-    
-    console.log(`[CITY: ${city}, ${state}] Found ${count} agent links`);
-    
-    for (let i = 0; i < Math.min(count, 20); i++) {
-      const href = await agentLinks.nth(i).getAttribute('href');
+    if (await cityLink.count() === 0) {
+      // Try without hyphens
+      const cityLinkAlt = page.locator(`a[href*="/agents/${state.toLowerCase()}/"][href*="${city.toLowerCase().split(' ')[0]}"]`).first();
+      if (await cityLinkAlt.count() === 0) {
+        console.log(`[CITY: ${city}, ${state}] City link not found on state page`);
+        return agents;
+      }
+      const href = await cityLinkAlt.getAttribute('href');
       if (href) {
-        const cleanHref = href.split('#')[0];
-        const fullUrl = new URL(cleanHref, BASE_URL).toString();
-        const agent = await scrapeAgentProfile(page, fullUrl);
-        if (agent) {
-          agents.push(agent);
-        }
+        await page.goto(new URL(href, BASE_URL).toString(), { waitUntil: 'networkidle' });
+        await randomDelay();
+      }
+    } else {
+      // Navigate to the city page
+      const href = await cityLink.getAttribute('href');
+      if (href) {
+        await page.goto(new URL(href, BASE_URL).toString(), { waitUntil: 'networkidle' });
+        await randomDelay();
       }
     }
     
+    // Now on the city page - look for agent profile links
+    // Agent links have 4+ segments: /agents/tx/houston/john-doe
+    const linksData = await page.evaluate((stateLower) => {
+      const links = Array.from(document.querySelectorAll(`a[href*="/agents/${stateLower}/"]`));
+      return links.map(a => a.getAttribute('href')).filter(href => href !== null);
+    }, state.toLowerCase());
+    
+    if (linksData.length === 0) {
+      console.log(`[CITY: ${city}, ${state}] No agent links found on city page`);
+      return agents;
+    }
+    
+    // Filter to actual agent profile links (4+ segments)
+    console.log(`[CITY: ${city}, ${state}] Found ${linksData.length} links on city page, filtering for agent profiles...`);
+    
+    const seenUrls = new Set<string>();
+    for (const href of linksData) {
+      const cleanHref = href.split('#')[0];
+      const fullUrl = new URL(cleanHref, BASE_URL).toString();
+      
+      // Skip if already seen or if it's a city page link (3 segments)
+      if (seenUrls.has(fullUrl)) continue;
+      const pathParts = fullUrl.replace(BASE_URL, '').split('/').filter(p => p);
+      if (pathParts.length < 4) continue; // Agent profiles have /agents/state/city/name
+      
+      seenUrls.add(fullUrl);
+      
+      const agent = await scrapeAgentProfile(page, fullUrl);
+      if (agent) {
+        agents.push(agent);
+        if (agents.length >= 20) break; // Limit to 20 agents per city
+      }
+    }
+    
+    console.log(`[CITY: ${city}, ${state}] Found ${agents.length} agent profiles`);
+
   } catch (error) {
     console.error(`Error searching by city ${city}:`, error);
   }
@@ -494,9 +523,16 @@ export async function saveRawRecords(records: RawAgentRecord[]): Promise<number>
   
   for (const record of records) {
     try {
+      // Validate record has required fields
+      if (!record.source_agent_id) {
+        console.warn('[SKIP] Record missing source_agent_id:', record.full_name);
+        continue;
+      }
+      
+      // Use insert instead of upsert since the unique constraint may not exist
       const { error } = await supabaseAdmin
         .from('raw_agent_records')
-        .upsert({
+        .insert({
           source: record.source,
           source_agent_id: record.source_agent_id,
           full_name: record.full_name,
@@ -507,11 +543,16 @@ export async function saveRawRecords(records: RawAgentRecord[]): Promise<number>
           zip: record.zip,
           license_lines: record.license_lines,
           raw_payload: record.raw_payload
-        }, {
-          onConflict: 'source,source_agent_id'
         });
       
-      if (!error) {
+      if (error) {
+        // If insert fails due to duplicate, try upsert without conflict handling
+        if (error.message.includes('duplicate') || error.code === '23505') {
+          console.log('[DUPLICATE] Skipping existing record:', record.source_agent_id);
+        } else {
+          console.warn('[INSERT ERROR]', error.message);
+        }
+      } else {
         savedCount++;
       }
     } catch (error) {
