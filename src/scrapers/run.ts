@@ -257,6 +257,38 @@ function startHttpServer() {
       return;
     }
     
+    // Debug endpoint to check queue status
+    if (req.url === '/debug/queue') {
+      const { data: queue } = await supabaseAdmin
+        .from('scrape_queue')
+        .select('*')
+        .eq('status', 'pending')
+        .limit(5);
+      const { count: total } = await supabaseAdmin
+        .from('scrape_queue')
+        .select('*', { count: 'exact', head: true });
+      const { count: agents } = await supabaseAdmin
+        .from('agents')
+        .select('*', { count: 'exact', head: true });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ queue, totalPending: total, totalAgents: agents }));
+      return;
+    }
+    
+    // Manual trigger for scrape cycle
+    if (req.url === '/debug/trigger-scrape') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ message: 'Starting scrape cycle manually' }));
+      
+      // Run one cycle asynchronously
+      runScraperCycle().then(result => {
+        console.log('Manual scrape cycle result:', result);
+      }).catch(error => {
+        console.error('Manual scrape cycle error:', error);
+      });
+      return;
+    }
+    
     // Query API endpoint
     if (req.method === 'POST' && req.url === '/api/query') {
       let body = '';
