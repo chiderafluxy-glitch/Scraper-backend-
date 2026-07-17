@@ -2,15 +2,6 @@ import { chromium, Browser, Page } from 'playwright';
 import { supabaseAdmin, RawAgentRecord } from '../lib/supabase';
 import { normalizePhoneE164 } from '../lib/phone';
 
-// Install playwright browsers at runtime
-import { execSync } from 'child_process';
-try {
-  execSync('npx playwright install chromium', { stdio: 'pipe' });
-  console.log('Playwright browsers installed successfully');
-} catch (e) {
-  console.log('Playwright browsers already installed or installation failed:', e);
-}
-
 interface AgentProfile {
   name: string;
   phone: string | null;
@@ -227,16 +218,37 @@ async function searchByZip(page: Page, zip: string): Promise<AgentProfile[]> {
     await page.waitForLoadState('networkidle');
     await randomDelay();
     
-    // Get agent links
-    const agentLinks = page.locator('a[href*="/agents/"]').filter({ hasText: '' });
+    // Take a screenshot on zero results for debugging
+    const agentLinks = page.locator('a[href*="/agents/"][href*="/tx/"], a[href*="/agents/"][href*="/fl/"], a[href*="/agents/"][href*="/ga/"]');
     const count = await agentLinks.count();
+    
+    if (count === 0) {
+      await page.screenshot({ path: '/tmp/scraper-zero-results.png' });
+      console.warn(`[WARNING] Zero results for ZIP ${zip} — screenshot saved to /tmp/scraper-zero-results.png`);
+      console.warn(`[DEBUG] Current URL: ${page.url()}`);
+      
+      // Try alternative selectors to debug
+      const allAgentLinks = page.locator('a[href*="/agents/"]');
+      const allCount = await allAgentLinks.count();
+      console.warn(`[DEBUG] Found ${allCount} total /agents/ links on page`);
+      
+      // Check if search actually returned results
+      const bodyText = await page.locator('body').textContent();
+      if (bodyText?.includes('No results') || bodyText?.includes('no results')) {
+        console.warn(`[DEBUG] Page indicates no results found`);
+      }
+      
+      consecutiveEmptyResults++;
+      return agents;
+    }
     
     console.log(`[ZIP: ${zip}] Found ${count} agent links`);
     
     for (let i = 0; i < Math.min(count, 20); i++) {
       const href = await agentLinks.nth(i).getAttribute('href');
-      if (href && !href.includes('/agents/search')) {
-        const fullUrl = href.startsWith('http') ? href : `${BASE_URL}${href}`;
+      if (href) {
+        const cleanHref = href.split('#')[0]; // Remove #contact fragment
+        const fullUrl = new URL(cleanHref, BASE_URL).toString();
         const agent = await scrapeAgentProfile(page, fullUrl);
         if (agent) {
           agents.push(agent);
@@ -245,11 +257,6 @@ async function searchByZip(page: Page, zip: string): Promise<AgentProfile[]> {
           consecutiveEmptyResults++;
         }
       }
-    }
-
-    if (count === 0) {
-      consecutiveEmptyResults++;
-      console.warn(`[WARNING] Zero results for ZIP ${zip} — selector may need review`);
     }
     
   } catch (error) {
@@ -288,7 +295,7 @@ async function searchByState(page: Page, state: string): Promise<AgentProfile[]>
     // Scrape each city with zero-result monitoring
     for (let cityIndex = 0; cityIndex < cities.length; cityIndex++) {
       const cityPath = cities[cityIndex];
-      const fullUrl = cityPath.startsWith('http') ? cityPath : `${BASE_URL}${cityPath}`;
+      const fullUrl = new URL(cityPath, BASE_URL).toString();
       
       try {
         await page.goto(fullUrl, { waitUntil: 'networkidle' });
@@ -302,7 +309,7 @@ async function searchByState(page: Page, state: string): Promise<AgentProfile[]>
         for (let i = 0; i < Math.min(agentCount, 20); i++) {
           const href = await agentLinks.nth(i).getAttribute('href');
           if (href && !href.includes('/agents/search') && !href.match(/\/[a-z]{2}\/[a-z-]+$/)) {
-            const fullAgentUrl = href.startsWith('http') ? href : `${BASE_URL}${href}`;
+            const fullAgentUrl = new URL(href, BASE_URL).toString();
             const agent = await scrapeAgentProfile(page, fullAgentUrl);
             if (agent) {
               agents.push(agent);
