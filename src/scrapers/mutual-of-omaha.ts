@@ -2,6 +2,15 @@ import { chromium, Browser, Page } from 'playwright';
 import { supabaseAdmin, RawAgentRecord } from '../lib/supabase';
 import { normalizePhoneE164 } from '../lib/phone';
 
+// Install playwright browsers at runtime
+import { execSync } from 'child_process';
+try {
+  execSync('npx playwright install chromium', { stdio: 'pipe' });
+  console.log('Playwright browsers installed successfully');
+} catch (e) {
+  console.log('Playwright browsers already installed or installation failed:', e);
+}
+
 interface AgentProfile {
   name: string;
   phone: string | null;
