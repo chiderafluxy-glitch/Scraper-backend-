@@ -5,7 +5,10 @@
  */
 
 import { supabaseAdmin } from '../lib/supabase';
-import { scrapeMutualOfOmaha, saveRawRecords } from './mutual-of-omaha';
+import { scrapeMutualOfOmaha } from './mutual-of-omaha';
+import { scrapeStateFarm } from './state-farm';
+import { scrapeAllstate } from './allstate';
+import { scrapePrudential } from './prudential';
 import { runNormalization } from '../scripts/normalize';
 
 interface QueueItem {
@@ -43,13 +46,13 @@ async function updateQueueItem(id: string, status: string, errorMessage?: string
     .eq('id', id);
 }
 
-async function initializeQueueForState(state: string, cities: string[]) {
+async function initializeQueueForState(source: string, state: string, cities: string[]) {
   for (const city of cities) {
     // Check if already exists first
     const { data: existing } = await supabaseAdmin
       .from('scrape_queue')
       .select('id')
-      .eq('source', 'mutual_of_omaha')
+      .eq('source', source)
       .eq('state', state)
       .eq('city_or_zip', city)
       .single();
@@ -58,14 +61,14 @@ async function initializeQueueForState(state: string, cities: string[]) {
       const { error } = await supabaseAdmin
         .from('scrape_queue')
         .insert({
-          source: 'mutual_of_omaha',
+          source,
           state,
           city_or_zip: city,
           status: 'pending'
         });
       
       if (error) {
-        console.error(`Error inserting queue item for ${city}:`, error);
+        console.error(`Error inserting queue item for ${source}/${state}/${city}:`, error);
       }
     }
   }
@@ -158,10 +161,14 @@ export async function runScraperCycle() {
     };
     
     for (const [state, cities] of Object.entries(targetStates)) {
-      await initializeQueueForState(state, cities);
+      // Initialize for all carriers
+      await initializeQueueForState('mutual_of_omaha', state, cities);
+      await initializeQueueForState('state_farm', state, cities);
+      await initializeQueueForState('allstate', state, cities);
+      await initializeQueueForState('prudential', state, cities);
     }
     
-    console.log('Initialized queue with target cities');
+    console.log('Initialized queue with target cities for all carriers');
     return { stopped: false, initialized: true };
   }
   
@@ -171,13 +178,27 @@ export async function runScraperCycle() {
   try {
     console.log(`Processing: ${queueItem.source} - ${queueItem.state} - ${queueItem.city_or_zip}`);
     
-    // Run the scraper
-    const records = await scrapeMutualOfOmaha(queueItem.state, queueItem.city_or_zip);
-    console.log(`Found ${records.length} records`);
+    let records: any[] = [];
     
-    // Save to raw table
-    const saved = await saveRawRecords(records);
-    console.log(`Saved ${saved} raw records`);
+    // Dispatch to correct scraper based on source
+    switch (queueItem.source) {
+      case 'mutual_of_omaha':
+        records = await scrapeMutualOfOmaha(queueItem.state, queueItem.city_or_zip);
+        break;
+      case 'state_farm':
+        records = await scrapeStateFarm(queueItem.state, queueItem.city_or_zip);
+        break;
+      case 'allstate':
+        records = await scrapeAllstate(queueItem.state, queueItem.city_or_zip);
+        break;
+      case 'prudential':
+        records = await scrapePrudential(queueItem.state, queueItem.city_or_zip);
+        break;
+      default:
+        console.log(`Unknown source: ${queueItem.source}, skipping`);
+    }
+    
+    console.log(`Found ${records.length} records`);
     
     // Run normalization
     const normResult = await runNormalization(false);
