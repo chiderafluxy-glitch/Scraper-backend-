@@ -474,20 +474,35 @@ if (require.main === module) {
   startHttpServer();
   
   let completedCycles = 0;
+  let isRunning = false; // Lock to prevent multiple cycles
   
   (async () => {
     while (completedCycles < cycles) {
-      const result = await runScraperCycle();
-      completedCycles++;
-      console.log(`Cycle ${completedCycles} result:`, result);
-      
-      if (result.stopped) {
-        console.log('Scraper stopped.');
-        break;
+      // Skip if already running
+      if (isRunning) {
+        console.log('Scraper cycle already in progress, skipping...');
+        await new Promise(resolve => setTimeout(resolve, 60000)); // Wait 1 minute
+        continue;
       }
       
-      // Delay between cycles (30 seconds)
-      await new Promise(resolve => setTimeout(resolve, 30000));
+      isRunning = true;
+      try {
+        const result = await runScraperCycle();
+        completedCycles++;
+        console.log(`Cycle ${completedCycles} result:`, result);
+        
+        if (result.stopped) {
+          console.log('Scraper stopped.');
+          break;
+        }
+      } catch (error) {
+        console.error('Scraper cycle error:', error);
+      } finally {
+        isRunning = false;
+      }
+      
+      // Delay between cycles (60 seconds)
+      await new Promise(resolve => setTimeout(resolve, 60000));
     }
     
     if (cycles === Infinity) {
