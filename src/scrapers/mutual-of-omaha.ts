@@ -336,7 +336,7 @@ async function searchByCity(page: Page, city: string, state: string): Promise<Ag
       const agent = await scrapeAgentProfile(page, fullUrl);
       if (agent) {
         agents.push(agent);
-        if (agents.length >= 20) break; // Limit to 20 agents per city
+        if (agents.length >= 50) break; // Limit to 50 agents per city
       }
     }
     
