@@ -7,7 +7,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "scraper": "npx tsx src/scrapers/run.ts",
+    "scrape:mutual-of-omaha": "npx tsx src/scrapers/run.ts --source mutual-of-omaha",
+    "normalize": "npx tsx src/scripts/normalize.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
@@ -19,6 +22,7 @@
     "uuid": "^10.0.0"
   },
   "devDependencies": {
+    "tsx": "^4.16.0",
     "@types/node": "^20.14.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
