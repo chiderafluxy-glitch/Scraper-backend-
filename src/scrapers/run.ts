@@ -140,30 +140,37 @@ export async function runScraperCycle() {
   }
 }
 
-// CLI runner
+// CLI runner - runs continuously
 if (require.main === module) {
-  const cycles = parseInt(process.argv[2] || '1');
+  const cycles = process.argv[2] === 'once' ? 1 : Infinity; // 'npm run scraper' runs forever, 'npm run scraper once' runs once
   
-  console.log(`Running ${cycles} scraper cycle(s)...`);
+  console.log(`Starting scraper service (mode: ${cycles === 1 ? 'once' : 'continuous'})...`);
   
   let completedCycles = 0;
   
   (async () => {
-    for (let i = 0; i < cycles; i++) {
+    while (completedCycles < cycles) {
       const result = await runScraperCycle();
       completedCycles++;
       console.log(`Cycle ${completedCycles} result:`, result);
       
       if (result.stopped) {
+        console.log('Scraper stopped.');
         break;
       }
       
-      // Small delay between cycles
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      // Delay between cycles (30 seconds)
+      await new Promise(resolve => setTimeout(resolve, 30000));
     }
     
-    console.log(`\nScraper run complete. Processed ${completedCycles} cycle(s).`);
-    process.exit(0);
+    if (cycles === Infinity) {
+      console.log('Scraper service running continuously...');
+      // Keep alive
+      setInterval(() => {}, 60000);
+    } else {
+      console.log(`\nScraper run complete. Processed ${completedCycles} cycle(s).`);
+      process.exit(0);
+    }
   })().catch(error => {
     console.error('Scraper run failed:', error);
     process.exit(1);
