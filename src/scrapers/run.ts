@@ -298,6 +298,17 @@ function startHttpServer() {
       return;
     }
     
+    // Status endpoint
+    if (req.url === '/debug/status') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ 
+        scraper: 'running', 
+        version: '2026-07-17',
+        timestamp: new Date().toISOString()
+      }));
+      return;
+    }
+    
     // Query API endpoint
     if (req.method === 'POST' && req.url === '/api/query') {
       let body = '';
