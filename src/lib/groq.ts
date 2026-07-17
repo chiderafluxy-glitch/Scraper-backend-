@@ -1,8 +1,15 @@
 import Groq from 'groq-sdk';
 
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
-});
+// Create Groq client lazily so it can work without env var during import
+let groqInstance: Groq | null = null;
+
+function getGroqClient(apiKey?: string): Groq {
+  const key = apiKey || process.env.GROQ_API_KEY;
+  if (!groqInstance || (apiKey && key !== process.env.GROQ_API_KEY)) {
+    groqInstance = new Groq({ apiKey: key });
+  }
+  return groqInstance;
+}
 
 export interface QueryFilter {
   states: string[] | null;
@@ -145,7 +152,9 @@ const SYSTEM_PROMPT = `You are a query parser for an insurance agent lead databa
 
 Return ONLY valid JSON, no preamble, no explanation.`;
 
-export async function parseQuery(userRequest: string): Promise<QueryFilter> {
+export async function parseQuery(userRequest: string, apiKey?: string): Promise<QueryFilter> {
+  const groq = getGroqClient(apiKey);
+  
   const completion = await groq.chat.completions.create({
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },

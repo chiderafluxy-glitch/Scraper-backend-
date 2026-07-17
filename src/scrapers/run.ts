@@ -200,23 +200,191 @@ export async function runScraperCycle() {
   }
 }
 
-// Simple HTTP server to keep process alive for Render health checks
+// Simple HTTP server to keep process alive for Render health checks and API
 function startHttpServer() {
   const http = require('http');
-  const server = http.createServer((req, res) => {
+  const { parseQuery, validateStateCodes, getStatesFromCities } = require('../lib/groq');
+  const { createClient } = require('@supabase/supabase-js');
+  const { v4: uuidv4 } = require('uuid');
+  
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://qgxrwuqtqbxjzsuggoty.supabase.co';
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  const groqApiKey = process.env.GROQ_API_KEY || '';
+  
+  const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+  
+  const server = http.createServer(async (req, res) => {
+    // CORS headers
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    
+    if (req.method === 'OPTIONS') {
+      res.writeHead(200);
+      res.end();
+      return;
+    }
+    
+    // Health check
     if (req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok', scraper: 'running' }));
-    } else {
-      res.writeHead(200);
-      res.end('Scraper service running');
+      return;
     }
+    
+    // Query API endpoint
+    if (req.method === 'POST' && req.url === '/api/query') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', async () => {
+        try {
+          const { query } = JSON.parse(body);
+          
+          if (!query) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Missing query parameter' }));
+            return;
+          }
+          
+          // Parse query using Groq
+          let filter;
+          try {
+            filter = await parseQuery(query, groqApiKey);
+          } catch (e) {
+            console.error('Groq parse error:', e);
+            filter = { states: ['ALL'], cities: null, count: 1000, exclude_delivered: true, notes: null };
+          }
+          
+          // Get states from cities
+          let allStates = filter.states || [];
+          if (filter.cities && filter.cities.length > 0) {
+            const statesFromCities = getStatesFromCities(filter.cities);
+            allStates = [...new Set([...allStates, ...statesFromCities])];
+          }
+          
+          // Handle "ALL"
+          if (allStates.length === 0 || allStates[0] === 'ALL') {
+            allStates = [];
+          }
+          
+          const states = validateStateCodes(allStates.length > 0 ? allStates : null);
+          
+          // Build query
+          let dbQuery = supabaseAdmin
+            .from('agents')
+            .select('*')
+            .order('random()');
+          
+          if (states && states.length > 0) {
+            dbQuery = dbQuery.in('state', states);
+          }
+          
+          if (filter.exclude_delivered) {
+            dbQuery = dbQuery.eq('delivered', false);
+          }
+          
+          dbQuery = dbQuery.limit(filter.count);
+          
+          const { data: agents, error } = await dbQuery;
+          
+          if (error) {
+            console.error('Database query error:', error);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Database query failed', details: error.message }));
+            return;
+          }
+          
+          // Filter by city if specified
+          let filteredAgents = agents || [];
+          if (filter.cities && filter.cities.length > 0) {
+            const citySet = new Set(filter.cities.map(c => c.toLowerCase()));
+            filteredAgents = filteredAgents.filter(a => a.city && citySet.has(a.city.toLowerCase()));
+            filteredAgents = filteredAgents.slice(0, filter.count);
+          }
+          
+          if (filteredAgents.length === 0) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              agents: [],
+              count: 0,
+              message: 'No agents found matching your criteria'
+            }));
+            return;
+          }
+          
+          // Update delivered status
+          const batchId = uuidv4();
+          const agentIds = filteredAgents.map(a => a.id);
+          
+          await supabaseAdmin
+            .from('agents')
+            .update({
+              delivered: true,
+              delivered_at: new Date().toISOString(),
+              delivered_batch_id: batchId
+            })
+            .in('id', agentIds);
+          
+          await supabaseAdmin
+            .from('delivery_batches')
+            .insert({
+              id: batchId,
+              description: `Query: ${query}`,
+              count: filteredAgents.length
+            });
+          
+          // Generate CSV
+          const csv = generateCSV(filteredAgents);
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            agents: filteredAgents,
+            batch_id: batchId,
+            count: filteredAgents.length,
+            csv
+          }));
+          
+        } catch (e) {
+          console.error('API error:', e);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Internal server error' }));
+        }
+      });
+      return;
+    }
+    
+    // Default response
+    res.writeHead(200);
+    res.end('Scraper service running');
   });
   
   const PORT = process.env.PORT || 3000;
   server.listen(PORT, () => {
     console.log(`HTTP server listening on port ${PORT}`);
   });
+}
+
+function generateCSV(agents) {
+  const headers = ['full_name', 'phone', 'phone_e164', 'email', 'city', 'state', 'zip', 'sources', 'license_lines', 'delivered'];
+  const rows = agents.map(agent => [
+    agent.full_name || '',
+    agent.phone || '',
+    agent.phone_e164 || '',
+    agent.email || '',
+    agent.city || '',
+    agent.state || '',
+    agent.zip || '',
+    (agent.sources || []).join('; '),
+    agent.license_lines || '',
+    agent.delivered ? 'Yes' : 'No'
+  ]);
+  
+  const csvContent = [
+    headers.join(','),
+    ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+  ].join('\n');
+  
+  return csvContent;
 }
 
 // CLI runner - runs continuously
