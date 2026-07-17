@@ -269,11 +269,11 @@ function startHttpServer() {
           
           const states = validateStateCodes(allStates.length > 0 ? allStates : null);
           
-          // Build query
+          // Build query (Supabase REST doesn't support random(), so we order by created_at)
           let dbQuery = supabaseAdmin
             .from('agents')
             .select('*')
-            .order('random()');
+            .order('created_at', { ascending: false });
           
           if (states && states.length > 0) {
             dbQuery = dbQuery.in('state', states);

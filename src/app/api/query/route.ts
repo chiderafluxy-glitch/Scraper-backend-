@@ -44,11 +44,11 @@ export async function POST(request: NextRequest) {
     // Validate state codes
     const states = validateStateCodes(allStates.length > 0 ? allStates : null);
     
-    // Build the query
+    // Build the query (Supabase REST doesn't support random(), so we order by id for consistency)
     let dbQuery = supabaseAdmin
       .from('agents')
       .select('*')
-      .order('random()');
+      .order('created_at', { ascending: false });
     
     // Filter by state if specified
     if (states && states.length > 0) {
