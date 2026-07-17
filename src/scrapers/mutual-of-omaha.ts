@@ -266,6 +266,60 @@ async function searchByZip(page: Page, zip: string): Promise<AgentProfile[]> {
   return agents;
 }
 
+/**
+ * Search for agents by city name within a state
+ */
+async function searchByCity(page: Page, city: string, state: string): Promise<AgentProfile[]> {
+  const agents: AgentProfile[] = [];
+  
+  try {
+    // Navigate to the search page
+    await page.goto(`${BASE_URL}/agents/search`, { waitUntil: 'networkidle' });
+    await randomDelay();
+    
+    // Enter city name
+    let searchInput = page.getByPlaceholder('Search by name or location');
+    if ((await searchInput.count()) === 0) {
+      searchInput = page.getByRole('textbox', { name: 'Conduct a search' });
+    }
+    await searchInput.first().waitFor({ state: 'visible', timeout: 10000 });
+    await searchInput.first().fill(`${city}, ${state}`);
+    await randomDelay();
+    
+    await page.keyboard.press('Enter');
+    await page.waitForLoadState('networkidle');
+    await randomDelay();
+    
+    // Filter to target state agents
+    const agentLinks = page.locator(`a[href*="/agents/"][href*="/${state.toLowerCase()}/"]`);
+    const count = await agentLinks.count();
+    
+    if (count === 0) {
+      console.warn(`[WARNING] Zero results for city ${city}, ${state}`);
+      return agents;
+    }
+    
+    console.log(`[CITY: ${city}, ${state}] Found ${count} agent links`);
+    
+    for (let i = 0; i < Math.min(count, 20); i++) {
+      const href = await agentLinks.nth(i).getAttribute('href');
+      if (href) {
+        const cleanHref = href.split('#')[0];
+        const fullUrl = new URL(cleanHref, BASE_URL).toString();
+        const agent = await scrapeAgentProfile(page, fullUrl);
+        if (agent) {
+          agents.push(agent);
+        }
+      }
+    }
+    
+  } catch (error) {
+    console.error(`Error searching by city ${city}:`, error);
+  }
+  
+  return agents;
+}
+
 async function searchByState(page: Page, state: string): Promise<AgentProfile[]> {
   const agents: AgentProfile[] = [];
   let consecutiveEmptyResults = 0;
@@ -343,7 +397,7 @@ async function searchByState(page: Page, state: string): Promise<AgentProfile[]>
   return agents;
 }
 
-export async function scrapeMutualOfOmaha(state?: string, zip?: string): Promise<RawAgentRecord[]> {
+export async function scrapeMutualOfOmaha(state?: string, location?: string): Promise<RawAgentRecord[]> {
   let browser: Browser | null = null;
   const records: RawAgentRecord[] = [];
   
@@ -360,8 +414,13 @@ export async function scrapeMutualOfOmaha(state?: string, zip?: string): Promise
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
     });
     
-    if (zip) {
-      const agents = await searchByZip(page, zip);
+    // Determine if location is a ZIP code (5 digits) or city name
+    const isZipCode = /^\d{5}$/.test(location || '');
+    
+    if (location) {
+      const agents = isZipCode
+        ? await searchByZip(page, location)
+        : await searchByCity(page, location, state || 'TX');
       for (const agent of agents) {
         records.push({
           id: '',
