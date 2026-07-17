@@ -20,29 +20,19 @@ interface QueueItem {
 }
 
 async function getNextQueueItem(): Promise<QueueItem | null> {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('scrape_queue')
-      .select('*')
-      .eq('status', 'pending')
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .single();
-    
-    if (error) {
-      console.error('[ERROR] Failed to get queue item:', error);
-      return null;
-    }
-    
-    if (!data) {
-      return null;
-    }
-    
-    return data as QueueItem;
-  } catch (e) {
-    console.error('[ERROR] Exception in getNextQueueItem:', e);
+  const { data, error } = await supabaseAdmin
+    .from('scrape_queue')
+    .select('*')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .single();
+  
+  if (error || !data) {
     return null;
   }
+  
+  return data as QueueItem;
 }
 
 async function updateQueueItem(id: string, status: string, errorMessage?: string) {
@@ -171,11 +161,14 @@ export async function runScraperCycle() {
     };
     
     for (const [state, cities] of Object.entries(targetStates)) {
-      // Only initialize for mutual_of_omaha for now (other scrapers need testing)
+      // Initialize for all carriers
       await initializeQueueForState('mutual_of_omaha', state, cities);
+      await initializeQueueForState('state_farm', state, cities);
+      await initializeQueueForState('allstate', state, cities);
+      await initializeQueueForState('prudential', state, cities);
     }
     
-    console.log('Initialized queue with target cities');
+    console.log('Initialized queue with target cities for all carriers');
     return { stopped: false, initialized: true };
   }
   
@@ -432,24 +425,17 @@ if (require.main === module) {
   
   (async () => {
     while (completedCycles < cycles) {
-      try {
-        const result = await runScraperCycle();
-        completedCycles++;
-        console.log(`[SCRAPER] Cycle ${completedCycles} result:`, result);
-        
-        if (result?.stopped) {
-          console.log('[SCRAPER] Scraper stopped.');
-          break;
-        }
-        
-        // Delay between cycles (30 seconds)
-        await new Promise(resolve => setTimeout(resolve, 30000));
-      } catch (error) {
-        console.error('[SCRAPER] Cycle error:', error);
-        completedCycles++;
-        // Continue even if there's an error - wait 30 seconds and try again
-        await new Promise(resolve => setTimeout(resolve, 30000));
+      const result = await runScraperCycle();
+      completedCycles++;
+      console.log(`Cycle ${completedCycles} result:`, result);
+      
+      if (result.stopped) {
+        console.log('Scraper stopped.');
+        break;
       }
+      
+      // Delay between cycles (30 seconds)
+      await new Promise(resolve => setTimeout(resolve, 30000));
     }
     
     if (cycles === Infinity) {
