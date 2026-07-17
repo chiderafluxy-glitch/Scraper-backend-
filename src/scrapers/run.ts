@@ -78,11 +78,18 @@ export async function runScraperCycle() {
   console.log('Starting scraper cycle...');
   
   // Check if under global cap
-  const { data: config } = await supabaseAdmin
+  console.log('Checking global cap...');
+  const { data: config, error: configError } = await supabaseAdmin
     .from('config')
     .select('value')
     .eq('key', 'global_cap')
     .single();
+  
+  if (configError) {
+    console.error('Error fetching config:', configError);
+  } else {
+    console.log('Config:', config);
+  }
   
   const capEnabled = config?.value?.enabled !== false;
   const capLimit = config?.value?.limit || 20000;
@@ -97,7 +104,9 @@ export async function runScraperCycle() {
   }
   
   // Get next queue item
+  console.log('Getting next queue item...');
   const queueItem = await getNextQueueItem();
+  console.log('Queue item:', queueItem);
   
   if (!queueItem) {
     console.log('No pending queue items. Scrape cycle complete.');
