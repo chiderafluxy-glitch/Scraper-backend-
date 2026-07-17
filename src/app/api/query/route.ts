@@ -93,6 +93,17 @@ export async function POST(request: NextRequest) {
       filteredAgents = filteredAgents.slice(0, filter.count);
     }
     
+    // Get scraped states for the note
+    const { data: scrapedData } = await supabaseAdmin
+      .from('scrape_queue')
+      .select('state')
+      .eq('status', 'done');
+    const scrapedStatesList = scrapedData?.map(d => d.state) || [];
+    const uniqueStates = scrapedStatesList.filter((v, i, a) => a.indexOf(v) === i);
+    const scrapedStatesNote = uniqueStates.length > 0
+      ? `Currently scraped: ${uniqueStates.join(', ')}. More states coming soon.`
+      : 'No states scraped yet. The scraper is still initializing.';
+    
     if (filteredAgents.length === 0) {
       return NextResponse.json({
         agents: [],
@@ -100,7 +111,7 @@ export async function POST(request: NextRequest) {
         count: 0,
         message: 'No agents found matching your criteria. Try expanding your search or waiting for more data to be scraped.',
         suggested_states: states || [],
-        scraped_states_note: 'Currently scraped: TX, FL, GA. More states coming soon.'
+        scraped_states_note: scrapedStatesNote
       });
     }
     
@@ -150,7 +161,8 @@ export async function POST(request: NextRequest) {
         count_returned: filteredAgents.length,
         exclude_delivered: filter.exclude_delivered,
         notes: filter.notes
-      }
+      },
+      scraped_states_note: scrapedStatesNote
     });
     
   } catch (error) {
