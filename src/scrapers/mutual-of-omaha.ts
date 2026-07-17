@@ -277,13 +277,13 @@ async function searchByCity(page: Page, city: string, state: string): Promise<Ag
     await page.goto(`${BASE_URL}/agents/search`, { waitUntil: 'networkidle' });
     await randomDelay();
     
-    // Enter city name
+    // Enter city name (just the city, not "city, state" - testing showed "Houston" works but "Houston, TX" doesn't)
     let searchInput = page.getByPlaceholder('Search by name or location');
     if ((await searchInput.count()) === 0) {
       searchInput = page.getByRole('textbox', { name: 'Conduct a search' });
     }
     await searchInput.first().waitFor({ state: 'visible', timeout: 10000 });
-    await searchInput.first().fill(`${city}, ${state}`);
+    await searchInput.first().fill(city);
     await randomDelay();
     
     await page.keyboard.press('Enter');
