@@ -119,8 +119,7 @@ export async function normalizeRawRecords(batchSize: number = 100): Promise<Norm
             source_agent_ids: sourceAgentIds,
             email: raw.email || existingAgent.email,
             phone: raw.phone || existingAgent.phone,
-            phone_e164: phoneE164 || existingAgent.phone_e164,
-            updated_at: new Date().toISOString()
+            phone_e164: phoneE164 || existingAgent.phone_e164
           })
           .eq('id', existingAgent.id);
         
