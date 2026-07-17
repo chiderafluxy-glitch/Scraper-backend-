@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, Agent } from '@/lib/supabase';
-import { parseQuery, validateStateCodes, QueryFilter } from '@/lib/groq';
+import { parseQuery, validateStateCodes, getStatesFromCities, QueryFilter } from '@/lib/groq';
 import { v4 as uuidv4 } from 'uuid';
 
 export async function POST(request: NextRequest) {
@@ -27,8 +27,22 @@ export async function POST(request: NextRequest) {
       );
     }
     
+    // Get states from cities if any were mentioned
+    let allStates = filter.states || [];
+    if (filter.cities && filter.cities.length > 0) {
+      const statesFromCities = getStatesFromCities(filter.cities);
+      // Merge states from cities with explicitly mentioned states
+      const statesSet = new Set([...allStates, ...statesFromCities]);
+      allStates = Array.from(statesSet);
+    }
+    
+    // Handle "ALL" state
+    if (allStates.length === 0 || allStates[0] === 'ALL') {
+      allStates = [];
+    }
+    
     // Validate state codes
-    const states = validateStateCodes(filter.states);
+    const states = validateStateCodes(allStates.length > 0 ? allStates : null);
     
     // Build the query
     let dbQuery = supabaseAdmin
@@ -39,6 +53,15 @@ export async function POST(request: NextRequest) {
     // Filter by state if specified
     if (states && states.length > 0) {
       dbQuery = dbQuery.in('state', states);
+    }
+    
+    // Filter by city if cities were specified
+    if (filter.cities && filter.cities.length > 0) {
+      // Use ilike for case-insensitive city matching
+      const cityConditions = filter.cities.map(city => 
+        `city.ilike.${city},city.ilike.${city.toLowerCase()},city.ilike.${city.toUpperCase()}`
+      );
+      // Note: Supabase doesn't support OR with ilike easily, so we'll filter in memory for cities
     }
     
     // Filter by delivered status
@@ -59,18 +82,31 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    if (!agents || agents.length === 0) {
+    // Filter by city if cities were specified (post-query filtering)
+    let filteredAgents = agents || [];
+    if (filter.cities && filter.cities.length > 0) {
+      const citySet = new Set(filter.cities.map(c => c.toLowerCase()));
+      filteredAgents = filteredAgents.filter(agent => 
+        agent.city && citySet.has(agent.city.toLowerCase())
+      );
+      // Apply count limit again after city filtering
+      filteredAgents = filteredAgents.slice(0, filter.count);
+    }
+    
+    if (filteredAgents.length === 0) {
       return NextResponse.json({
         agents: [],
         batch_id: null,
         count: 0,
-        message: 'No agents found matching your criteria'
+        message: 'No agents found matching your criteria. Try expanding your search or waiting for more data to be scraped.',
+        suggested_states: states || [],
+        scraped_states_note: 'Currently scraped: TX, FL, GA. More states coming soon.'
       });
     }
     
     // Create a delivery batch
     const batchId = uuidv4();
-    const agentIds = agents.map(a => a.id);
+    const agentIds = filteredAgents.map(a => a.id);
     
     // Update agents as delivered in a transaction
     const { error: updateError } = await supabaseAdmin
@@ -96,22 +132,24 @@ export async function POST(request: NextRequest) {
       .insert({
         id: batchId,
         description: `Query: ${query}`,
-        count: agents.length
+        count: filteredAgents.length
       });
     
-    // Generate CSV
-    const csv = generateCSV(agents);
+    // Generate CSV with name, phone, email as priority
+    const csv = generateCSV(filteredAgents);
     
     return NextResponse.json({
-      agents,
+      agents: filteredAgents,
       batch_id: batchId,
-      count: agents.length,
+      count: filteredAgents.length,
       csv,
       filter: {
         states: states || 'ALL',
+        cities: filter.cities || [],
         count_requested: filter.count,
-        count_returned: agents.length,
-        exclude_delivered: filter.exclude_delivered
+        count_returned: filteredAgents.length,
+        exclude_delivered: filter.exclude_delivered,
+        notes: filter.notes
       }
     });
     
@@ -125,9 +163,10 @@ export async function POST(request: NextRequest) {
 }
 
 function generateCSV(agents: Agent[]): string {
+  // Priority fields: name, phone, email first
   const headers = ['full_name', 'phone', 'phone_e164', 'email', 'city', 'state', 'zip', 'sources', 'license_lines', 'delivered'];
   const rows = agents.map(agent => [
-    agent.full_name,
+    agent.full_name || '',
     agent.phone || '',
     agent.phone_e164 || '',
     agent.email || '',
