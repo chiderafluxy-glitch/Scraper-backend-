@@ -464,14 +464,17 @@ function generateCSV(agents) {
   return csvContent;
 }
 
-// CLI runner - runs continuously
+// CLI runner - runs continuously or once (for cron)
 if (require.main === module) {
-  const cycles = process.argv[2] === 'once' ? 1 : Infinity;
+  const isOnceMode = process.argv[2] === 'once';
+  const cycles = isOnceMode ? 1 : Infinity;
   
-  console.log(`Starting scraper service (mode: ${cycles === 1 ? 'once' : 'continuous'})...`);
+  console.log(`Starting scraper service (mode: ${isOnceMode ? 'once (cron)' : 'continuous'})...`);
   
-  // Start HTTP server for health checks
-  startHttpServer();
+  // Only start HTTP server in continuous mode (not needed for cron)
+  if (!isOnceMode) {
+    startHttpServer();
+  }
   
   let completedCycles = 0;
   let isRunning = false; // Lock to prevent multiple cycles

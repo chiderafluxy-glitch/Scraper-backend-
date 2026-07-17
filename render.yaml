@@ -1,35 +1,13 @@
 # Render Blueprint
-# Deploy scraper as a background worker on Render
+# Deploy scraper as cron jobs on Render (FREE on Starter plan)
 
 services:
-  # Scraper Worker
-  - name: scraper-worker
-    env: node
-    region: oregon
-    plan: starter
-    buildCommand: npm install && npx playwright install --with-deps chromium
-    startCommand: npm run scraper
-    healthCheckPath: /health
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PLAYWRIGHT_BROWSERS_PATH
-        value: "0"  # Install browsers to node_modules, not OS cache
-      - key: NEXT_PUBLIC_SUPABASE_URL
-        sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
-      - key: GROQ_API_KEY
-        sync: false
-      - key: SCRAPER_INTERVAL
-        value: "3600"  # Run every hour
-
-  # Cron Job for Scraper
+  # Cron Job for Scraper - runs every 6 hours, processes ONE city per run
   - name: scraper-cron
     cronSchedule: "0 */6 * * *"  # Every 6 hours
     maxRetries: 3
     buildCommand: npm install && npx playwright install --with-deps chromium
-    startCommand: npm run scrape:mutual-of-omaha -- --full
+    startCommand: npm run scraper-once  # Process ONE city, then exit
     region: oregon
     plan: starter
     envVars:
