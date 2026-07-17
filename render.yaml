@@ -1,15 +1,15 @@
 # Render Blueprint
-# Deploy scraper as cron jobs on Render (FREE on Starter plan)
+# Deploy scraper on Render
 
 services:
-  # Cron Job for Scraper - runs every 6 hours, processes ONE city per run
-  - name: scraper-cron
-    cronSchedule: "0 */6 * * *"  # Every 6 hours
-    maxRetries: 3
-    buildCommand: npm install && npx playwright install --with-deps chromium
-    startCommand: npm run scraper-once  # Process ONE city, then exit
+  # Scraper Worker - HTTP server + continuous scraper with lock
+  - name: scraper-worker
+    env: node
     region: oregon
     plan: starter
+    buildCommand: npm install && npx playwright install --with-deps chromium
+    startCommand: npm run scraper
+    healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
