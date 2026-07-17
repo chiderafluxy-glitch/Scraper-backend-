@@ -8,8 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "scraper": "npx tsx src/scrapers/run.ts",           # Continuous mode (for manual testing)
-    "scraper-once": "npx tsx src/scrapers/run.ts once", # Process ONE city, then exit (for cron)
+    "scraper": "npx tsx src/scrapers/run.ts",
+    "scraper-once": "npx tsx src/scrapers/run.ts once",
     "scrape:mutual-of-omaha": "npx tsx src/scrapers/run.ts --source mutual-of-omaha",
     "normalize": "npx tsx src/scripts/normalize.ts"
   },
