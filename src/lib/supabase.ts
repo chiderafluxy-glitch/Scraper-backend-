@@ -1,11 +1,19 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || 'https://qgxrwuqtqbxjzsuggoty.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || '';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://qgxrwuqtqbxjzsuggoty.supabase.co';
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFneHJ3dXF0cWJ4anpzdWdnb3R5Iiwicm9sZSI6InBhY2EiLCJpYXQiOjE3ODQxNzYzNDUsImV4cCI6MjA5OTc1MjM0NX0.VW0bpPIa1y7A7P1BpJqJ4t6F4q2M3dH9';
+
+console.log('=== SUPABASE CONFIG ===');
+console.log('SUPABASE_URL:', supabaseUrl);
+console.log('HAS_SERVICE_KEY:', !!supabaseServiceKey, '(length:', supabaseServiceKey.length + ')');
+console.log('HAS_ANON_KEY:', !!supabaseAnonKey);
+console.log('All env vars:', Object.keys(process.env).filter(k => k.includes('SUPABASE') || k.includes('GROQ')));
+console.log('========================');
 
 if (!supabaseServiceKey) {
-  console.error('Missing SUPABASE_SERVICE_ROLE_KEY environment variable');
-  console.log('Please set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY');
+  console.error('WARNING: SUPABASE_SERVICE_ROLE_KEY is empty!');
+  console.error('Available env vars with SUPABASE:', process.env.SUPABASE_SERVICE_ROLE_KEY ? 'YES' : 'NO');
 }
 
 // Client for server-side operations with elevated privileges
@@ -23,7 +31,7 @@ export const supabaseAdmin: SupabaseClient = createClient(
 // Client for browser-side operations (read-only for public data)
 export const supabase = createClient(
   supabaseUrl,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
+  supabaseAnonKey,
   {
     auth: {
       autoRefreshToken: false,
