@@ -1,17 +1,5 @@
-import { chromium, Browser, Page } from 'playwright';
-import { supabaseAdmin, RawAgentRecord } from '../lib/supabase';
-import { normalizePhoneE164 } from '../lib/phone';
-
-interface AgentProfile {
-  name: string;
-  phone: string | null;
-  email: string | null;
-  city: string;
-  state: string;
-  zip: string;
-  profileUrl: string;
-  agentId: string;
-}
+import { chromium, Browser } from 'playwright';
+import { RawAgentRecord } from '../lib/supabase';
 
 const SCRAPER_DELAY_MS = { min: 1000, max: 3000 };
 
@@ -20,8 +8,9 @@ function randomDelay(): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, delay));
 }
 
-export async function scrapeAllstate(state: string, city: string): Promise<number> {
+export async function scrapeAllstate(state: string, city: string): Promise<RawAgentRecord[]> {
   let browser: Browser | null = null;
+  const records: RawAgentRecord[] = [];
   
   try {
     console.log(`[ALLSTATE] Starting scrape for ${city}, ${state}`);
@@ -37,14 +26,11 @@ export async function scrapeAllstate(state: string, city: string): Promise<numbe
     await page.goto(searchUrl, { waitUntil: 'networkidle', timeout: 30000 });
     await randomDelay();
     
-    const agents: AgentProfile[] = [];
-    
     // Try to find agent cards/listings
     const agentCards = await page.locator('[class*="agent"], [class*="Agent"], a[href*="/agent/"]').evaluateAll(elements => 
       elements.slice(0, 50).map(el => ({
         href: (el as any).href || '',
-        text: el.textContent?.trim().substring(0, 100) || '',
-        html: el.innerHTML?.substring(0, 200) || ''
+        text: el.textContent?.trim().substring(0, 100) || ''
       }))
     );
     
@@ -66,15 +52,19 @@ export async function scrapeAllstate(state: string, city: string): Promise<numbe
         const addressZip = await page.locator('[class*="zip"], [class*="postal"]').first().textContent().catch(() => '');
         
         if (name) {
-          agents.push({
-            name: name.trim(),
+          const agentId = link.href.split('/').pop()?.replace('.aspx', '') || '';
+          records.push({
+            id: '',
+            source: 'allstate',
+            source_agent_id: agentId,
+            full_name: name.trim(),
             phone: phone?.replace(/[^\d]/g, '').substring(0, 10) || null,
             email: email?.trim() || null,
             city: addressCity?.trim() || city,
             state: addressState?.trim() || state,
             zip: addressZip?.replace(/[^\d-]/g, '').trim() || '',
-            profileUrl: link.href,
-            agentId: link.href.split('/').pop()?.replace('.aspx', '') || ''
+            profile_url: link.href,
+            raw_data: null
           });
         }
       } catch (e) {
@@ -82,33 +72,13 @@ export async function scrapeAllstate(state: string, city: string): Promise<numbe
       }
     }
     
-    console.log(`[ALLSTATE] Extracted ${agents.length} agents`);
-    
-    // Save to raw records
-    if (agents.length > 0) {
-      const records: RawAgentRecord[] = agents.map(a => ({
-        source: 'allstate',
-        source_agent_id: a.agentId,
-        full_name: a.name,
-        phone: a.phone,
-        email: a.email,
-        city: a.city,
-        state: a.state,
-        zip: a.zip,
-        profile_url: a.profileUrl,
-        raw_data: a as any
-      }));
-      
-      await supabaseAdmin.from('raw_agent_records').insert(records);
-      console.log(`[ALLSTATE] Saved ${records.length} raw records`);
-    }
-    
+    console.log(`[ALLSTATE] Extracted ${records.length} agents`);
     await browser.close();
-    return agents.length;
+    return records;
     
   } catch (error) {
     console.error(`[ALLSTATE] Error scraping ${city}, ${state}:`, error);
     if (browser) await browser.close();
-    return 0;
+    return records;
   }
 }

@@ -20,8 +20,9 @@ function randomDelay(): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, delay));
 }
 
-export async function scrapeStateFarm(state: string, city: string): Promise<number> {
+export async function scrapeStateFarm(state: string, city: string): Promise<RawAgentRecord[]> {
   let browser: Browser | null = null;
+  const records: RawAgentRecord[] = [];
   
   try {
     console.log(`[STATE FARM] Starting scrape for ${city}, ${state}`);
@@ -37,9 +38,6 @@ export async function scrapeStateFarm(state: string, city: string): Promise<numb
     await page.goto(searchUrl, { waitUntil: 'networkidle', timeout: 30000 });
     await randomDelay();
     
-    const agents: AgentProfile[] = [];
-    
-    // Try to find agent cards/listings
     const agentLinks = await page.locator('a[href*="/agent/"]').evaluateAll(links => 
       links.map(link => ({
         href: link.href,
@@ -64,15 +62,19 @@ export async function scrapeStateFarm(state: string, city: string): Promise<numb
         const addressZip = await page.locator('[class*="zip"], [class*="postal"]').first().textContent().catch(() => '');
         
         if (name) {
-          agents.push({
-            name: name.trim(),
+          const agentId = link.href.split('/').pop() || '';
+          records.push({
+            id: '',
+            source: 'state_farm',
+            source_agent_id: agentId,
+            full_name: name.trim(),
             phone: phone?.replace(/[^\d]/g, '').substring(0, 10) || null,
             email: email?.trim() || null,
             city: addressCity?.trim() || city,
             state: addressState?.trim() || state,
             zip: addressZip?.replace(/[^\d-]/g, '').trim() || '',
-            profileUrl: link.href,
-            agentId: link.href.split('/').pop() || ''
+            profile_url: link.href,
+            raw_data: null
           });
         }
       } catch (e) {
@@ -80,33 +82,13 @@ export async function scrapeStateFarm(state: string, city: string): Promise<numb
       }
     }
     
-    console.log(`[STATE FARM] Extracted ${agents.length} agents`);
-    
-    // Save to raw records
-    if (agents.length > 0) {
-      const records: RawAgentRecord[] = agents.map(a => ({
-        source: 'state_farm',
-        source_agent_id: a.agentId,
-        full_name: a.name,
-        phone: a.phone,
-        email: a.email,
-        city: a.city,
-        state: a.state,
-        zip: a.zip,
-        profile_url: a.profileUrl,
-        raw_data: a as any
-      }));
-      
-      await supabaseAdmin.from('raw_agent_records').insert(records);
-      console.log(`[STATE FARM] Saved ${records.length} raw records`);
-    }
-    
+    console.log(`[STATE FARM] Extracted ${records.length} agents`);
     await browser.close();
-    return agents.length;
+    return records;
     
   } catch (error) {
     console.error(`[STATE FARM] Error scraping ${city}, ${state}:`, error);
     if (browser) await browser.close();
-    return 0;
+    return records;
   }
 }

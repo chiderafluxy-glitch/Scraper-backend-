@@ -5,7 +5,7 @@
  */
 
 import { supabaseAdmin } from '../lib/supabase';
-import { scrapeMutualOfOmaha } from './mutual-of-omaha';
+import { scrapeMutualOfOmaha, saveRawRecords } from './mutual-of-omaha';
 import { scrapeStateFarm } from './state-farm';
 import { scrapeAllstate } from './allstate';
 import { scrapePrudential } from './prudential';
@@ -199,6 +199,10 @@ export async function runScraperCycle() {
     }
     
     console.log(`Found ${records.length} records`);
+    
+    // Save to raw table
+    const saved = await saveRawRecords(records);
+    console.log(`Saved ${saved} raw records`);
     
     // Run normalization
     const normResult = await runNormalization(false);
