@@ -140,11 +140,33 @@ export async function runScraperCycle() {
   }
 }
 
+// Simple HTTP server to keep process alive for Render health checks
+function startHttpServer() {
+  const http = require('http');
+  const server = http.createServer((req, res) => {
+    if (req.url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', scraper: 'running' }));
+    } else {
+      res.writeHead(200);
+      res.end('Scraper service running');
+    }
+  });
+  
+  const PORT = process.env.PORT || 3000;
+  server.listen(PORT, () => {
+    console.log(`HTTP server listening on port ${PORT}`);
+  });
+}
+
 // CLI runner - runs continuously
 if (require.main === module) {
-  const cycles = process.argv[2] === 'once' ? 1 : Infinity; // 'npm run scraper' runs forever, 'npm run scraper once' runs once
+  const cycles = process.argv[2] === 'once' ? 1 : Infinity;
   
   console.log(`Starting scraper service (mode: ${cycles === 1 ? 'once' : 'continuous'})...`);
+  
+  // Start HTTP server for health checks
+  startHttpServer();
   
   let completedCycles = 0;
   
@@ -165,8 +187,6 @@ if (require.main === module) {
     
     if (cycles === Infinity) {
       console.log('Scraper service running continuously...');
-      // Keep alive
-      setInterval(() => {}, 60000);
     } else {
       console.log(`\nScraper run complete. Processed ${completedCycles} cycle(s).`);
       process.exit(0);
