@@ -45,19 +45,28 @@ async function updateQueueItem(id: string, status: string, errorMessage?: string
 
 async function initializeQueueForState(state: string, cities: string[]) {
   for (const city of cities) {
-    const { error } = await supabaseAdmin
+    // Check if already exists first
+    const { data: existing } = await supabaseAdmin
       .from('scrape_queue')
-      .upsert({
-        source: 'mutual_of_omaha',
-        state,
-        city_or_zip: city,
-        status: 'pending'
-      }, {
-        onConflict: 'source,state,city_or_zip'
-      });
+      .select('id')
+      .eq('source', 'mutual_of_omaha')
+      .eq('state', state)
+      .eq('city_or_zip', city)
+      .single();
     
-    if (error) {
-      console.error(`Error inserting queue item for ${city}:`, error);
+    if (!existing) {
+      const { error } = await supabaseAdmin
+        .from('scrape_queue')
+        .insert({
+          source: 'mutual_of_omaha',
+          state,
+          city_or_zip: city,
+          status: 'pending'
+        });
+      
+      if (error) {
+        console.error(`Error inserting queue item for ${city}:`, error);
+      }
     }
   }
 }
