@@ -20,7 +20,7 @@ interface LocationData {
 }
 
 const BASE_URL = 'https://agents.mutualofomaha.com';
-const SCRAPER_DELAY_MS = { min: 1000, max: 3000 };
+const SCRAPER_DELAY_MS = { min: 300, max: 800 };
 
 function randomDelay(): Promise<void> {
   const delay = Math.random() * (SCRAPER_DELAY_MS.max - SCRAPER_DELAY_MS.min) + SCRAPER_DELAY_MS.min;
@@ -244,7 +244,7 @@ async function searchByZip(page: Page, zip: string): Promise<AgentProfile[]> {
     
     console.log(`[ZIP: ${zip}] Found ${count} agent links`);
     
-    for (let i = 0; i < Math.min(count, 20); i++) {
+    for (let i = 0; i < Math.min(count, 50); i++) {
       const href = await agentLinks.nth(i).getAttribute('href');
       if (href) {
         const cleanHref = href.split('#')[0]; // Remove #contact fragment
@@ -389,7 +389,7 @@ async function searchByState(page: Page, state: string): Promise<AgentProfile[]>
         const agentCount = await agentLinks.count();
         
         let cityCityAgents = 0;
-        for (let i = 0; i < Math.min(agentCount, 20); i++) {
+        for (let i = 0; i < Math.min(agentCount, 50); i++) {
           const href = await agentLinks.nth(i).getAttribute('href');
           if (href && !href.includes('/agents/search') && !href.match(/\/[a-z]{2}\/[a-z-]+$/)) {
             const fullAgentUrl = new URL(href, BASE_URL).toString();
